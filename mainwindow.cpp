@@ -12,6 +12,12 @@
 
 #include "rclcpp/rclcpp.hpp"
 
+#include <rviz_common/display_group.hpp>
+#include <rviz_common/display.hpp>
+
+
+
+
 MainWindow::MainWindow(QApplication * app, QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
@@ -29,7 +35,8 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
     // gui ten cua table sang waypoint
     table_publisher = raw_node->create_publisher<std_msgs::msg::String>("selected_table", 10);
 
-    confirm = raw_node->create_subscription<std_msgs::msg::String>("gui_node", 10, std::bind(&MainWindow::confirm_callback, this, std::placeholders::_1));
+    // 
+    confirm = raw_node->create_subscription<std_msgs::msg::String>("status_robot", 10, std::bind(&MainWindow::confirm_callback, this, std::placeholders::_1));
 
     finish_publisher = raw_node->create_publisher<std_msgs::msg::String>("finish_node", 10);
 
@@ -65,6 +72,7 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
 
     connect(ui->pushButton_19, &QPushButton::clicked, this, &MainWindow::select_table);
     connect(ui->pushButton_22, &QPushButton::clicked, this, &MainWindow::remove_table);
+    connect(ui->pushButton_23, &QPushButton::clicked, this, &MainWindow::remove_all_table);
     connect(ui->pushButton_21, &QPushButton::clicked, this, &MainWindow::move_table);
     connect(ui->pushButton_18, &QPushButton::clicked, this, &MainWindow::move_finish);
 
@@ -216,10 +224,15 @@ void MainWindow::setmap()
     localization_process = new QProcess(this);
 
     QStringList localization_args;
+    // localization_args << "launch"
+    //                   << "articubot_one"
+    //                   << "localization_launch.py"
+    //                   << QString("map:=%1").arg(map_yaml);
+
     localization_args << "launch"
-                      << "articubot_one"
-                      << "localization_launch.py"
-                      << QString("map:=%1").arg(map_yaml);
+                    << "agv_test_pkg"
+                    << "localization_launch.py"
+                    << QString("map:=%1").arg(map_yaml);
     
     localization_process->setProgram("ros2");
     localization_process->setArguments(localization_args);
@@ -330,16 +343,7 @@ void MainWindow::select_table()
     {
         qDebug()<<"Table already in list";
     }
-}
-
-
-void MainWindow::remove_table()
-{
-    QList<QListWidgetItem*> selectedItems = ui->listWidget->selectedItems();
-    for (QListWidgetItem* item : selectedItems)
-    {
-        delete ui->listWidget->takeItem(ui->listWidget->row(item));
-    }
+    qDebug()<<"data table: "<<table_list;  
 }
 
 
@@ -347,10 +351,7 @@ void MainWindow::move_table()
 {
     if(table_list.isEmpty())
     {
-        qDebug()<<"Emty list";                      // gui data ve vi tri home
-        auto message = std_msgs::msg::String();
-        message.data = "home";
-        table_publisher->publish(message);
+        qDebug()<<"Emty list";
     }
 
     else
@@ -361,6 +362,28 @@ void MainWindow::move_table()
         table_publisher->publish(message);
         table_list.clear();
     }
+    remove_all_table();
+}
+
+
+void MainWindow::remove_table()
+{
+    QList<QListWidgetItem*> selectedItems = ui->listWidget->selectedItems();
+    for (QListWidgetItem* item : selectedItems)
+    {
+        QString name_table = item->text();
+        table_list.removeAll(name_table);
+
+        delete ui->listWidget->takeItem(ui->listWidget->row(item));
+    }
+    qDebug()<<"data table: "<<table_list;   
+}
+
+void MainWindow::remove_all_table()
+{
+    ui->listWidget->clear();
+    table_list.clear();
+    qDebug()<<"data table: "<<table_list;  
 }
 
 void MainWindow::confirm_callback(const std_msgs::msg::String::SharedPtr msg)
@@ -382,7 +405,7 @@ void MainWindow::start_slam()
     slam_process = new QProcess(this);
 
     QStringList slam_args;
-    slam_args << "setsid" << "ros2" << "launch"
+    slam_args << "launch"
               << "articubot_one"
               << "online_async_launch.py"
               << "use_sim_time:=True";
@@ -392,7 +415,7 @@ void MainWindow::start_slam()
     slam_process->start();
 
     // slam_process->setArguments(slam_args);
-    slam_process->start("setsid", slam_args);
+    // slam_process->start("setsid", slam_args);
 
     // Config display map
     auto map_display = _manager->createDisplay("rviz_default_plugins/Map", "Map Display", true);
@@ -407,7 +430,6 @@ void MainWindow::start_slam()
         qDebug() << "Can't create map.";
     }
 }
-
 
 
 void MainWindow::quit_slam()
@@ -427,13 +449,24 @@ void MainWindow::quit_slam()
         // Gửi SIGINT đến PID đã tìm
         QProcess::execute("kill", QStringList() << "-SIGINT" << pid_str);
 
-        QProcess::execute("kill", QStringList() << "-SIGINT" << pid_str);
-
         QProcess::execute("pkill", QStringList() << "-f" << "slam_toolbox"); 
     }
     else
     {
         qDebug() << "slam_toolbox not running or PID not found.";
+    }
+
+    auto root_display_group = _manager->getRootDisplayGroup();
+
+    int num_displays = root_display_group->numDisplays();
+    for (int i = 0; i < num_displays; ++i)
+    {
+        auto display = root_display_group->getDisplayAt(i);
+        if (display && display->getName().toStdString() == "Map Display")  // check dung name map cua create_display
+        {
+            display->setEnabled(false);  // hoặc root_display_group->removeChild(display);
+            break;
+        }
     }
 }
 
@@ -523,7 +556,7 @@ void MainWindow::Control_Robot_Manual()
         ui->pushButton_9->setText("Stop");
         ui->pushButton_9->setStyleSheet("background-color: red; color: white;");
         
-        // Tắt điều khiển robot
+        // tat dieu khien robot
         ui->pushButton->setEnabled(false);
         ui->pushButton_2->setEnabled(false);
         ui->pushButton_3->setEnabled(false);
