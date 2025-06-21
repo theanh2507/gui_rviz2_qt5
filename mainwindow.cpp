@@ -23,7 +23,7 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
     , ui(new Ui::MainWindow)
     , _app(app)
 {
-    ui->setupUi(this);
+    ui->setupUi(this);              // this: Mainwindow da khoi tao
 
     initial();
     setupRobotModelDisplay();
@@ -87,8 +87,6 @@ MainWindow::~MainWindow()
     quit_slam();
     delete ui;
     kill(0, SIGINT);                            // dung toan bo tien trinh
-    // delete _manager;
-    // delete _render_panel;
 }
 
 
@@ -104,7 +102,7 @@ void MainWindow::initial()
 
     rviz_common::WindowManagerInterface * wm = nullptr;
     auto clock = _rvizRosNode.lock()->get_raw_node()->get_clock();
-    _manager = std::make_shared<rviz_common::VisualizationManager>(_render_panel.get(), _rvizRosNode, wm, clock);
+    _manager = std::make_shared<rviz_common::VisualizationManager>(_render_panel.get(), _rvizRosNode, wm, clock);       // _render_panel.get(): tra ve 1 con tro      
     _render_panel->initialize(_manager.get());
     QApplication::processEvents();
 
@@ -127,13 +125,13 @@ void MainWindow::initial()
     _grid->subProp("Cell Size")->setValue(1.0f);
 
     // 添加点云显示
-    _pointcloud = _manager->createDisplay("rviz_default_plugins/LaserScan", "scan", true);
+    _pointcloud = _manager->createDisplay("rviz_default_plugins/LaserScan", "scan_filter", true);
     if (_pointcloud == NULL) {
         throw std::runtime_error("Error creating pointcloud display");
     }
 
     // 配置点云样式
-    _pointcloud->subProp("Topic")->setValue("/laser_controller/out");
+    _pointcloud->subProp("Topic")->setValue("/laser_controller/out");               // gazebo topic lidar: /laser_controller/out    real topic lidar: /scan_filter
     _pointcloud->subProp("Style")->setValue("Points");
     _pointcloud->subProp("Size (Pixels)")->setValue(2);
     _pointcloud->subProp("Color Transformer")->setValue("Intensity");
@@ -177,6 +175,33 @@ void MainWindow::initial()
     // Set Interact tool as the active tool to enable mouse interactions
     auto tool_manager = _manager->getToolManager();
     tool_manager->setCurrentTool(tool_manager->addTool("rviz_default_plugins/Interact"));
+
+
+    ///////////////////////////// robot process /////////////////////////////
+    
+    if(robot_process)
+    {
+        robot_process->kill();
+        robot_process->waitForFinished(3000);
+        delete robot_process;
+        robot_process = nullptr;
+    }
+
+    robot_process = new QProcess(this);
+
+    QStringList robot_args;
+    robot_args << "launch"
+               << "articubot_one"
+               << "launch_sim.launch.py";
+
+    // robot_args << "launch"
+    //         << "agv_test_pkg"
+    //         << "launch_sim.launch.py";
+    
+    robot_process->setProgram("ros2");
+    robot_process->setArguments(robot_args);
+    robot_process->start();
+
 }
 
 
@@ -197,7 +222,6 @@ void MainWindow::setupRobotModelDisplay()
 }
 
 
-
 void MainWindow::setmap()
 {
     auto name_map = ui->comboBox->currentText();
@@ -206,7 +230,7 @@ void MainWindow::setmap()
     if (name_map == "map1")
         map_yaml = "/home/theanh/maps/test_map.yaml";
     else if (name_map == "map2")
-        map_yaml = "/home/theanh/maps/map_test_wall.yaml";
+        map_yaml = "/home/theanh/maps/abc.yaml";
     else if (name_map == "map3")
         map_yaml = "/home/theanh/maps/my_map.yaml";
     else
@@ -224,15 +248,15 @@ void MainWindow::setmap()
     localization_process = new QProcess(this);
 
     QStringList localization_args;
+    localization_args << "launch"
+                      << "articubot_one"
+                      << "localization_launch.py"
+                      << QString("map:=%1").arg(map_yaml);
+
     // localization_args << "launch"
-    //                   << "articubot_one"
+    //                   << "agv_test_pkg"
     //                   << "localization_launch.py"
     //                   << QString("map:=%1").arg(map_yaml);
-
-    localization_args << "launch"
-                    << "agv_test_pkg"
-                    << "localization_launch.py"
-                    << QString("map:=%1").arg(map_yaml);
     
     localization_process->setProgram("ros2");
     localization_process->setArguments(localization_args);
@@ -261,31 +285,15 @@ void MainWindow::setmap()
     navigation_args << "launch"
                     << "articubot_one"
                     << "navigation_launch.py";
+
+    // navigation_args << "launch"
+    //             << "agv_test_pkg"
+    //             << "navigation_launch.py";
     
     navigation_process->setProgram("ros2");
     navigation_process->setArguments(navigation_args);
     navigation_process->start();
 
-
-    ////////// robot process
-    if(robot_process)
-    {
-        robot_process->kill();
-        robot_process->waitForFinished(3000);
-        delete robot_process;
-        robot_process = nullptr;
-    }
-
-    robot_process = new QProcess(this);
-
-    QStringList robot_args;
-    robot_args << "launch"
-               << "articubot_one"
-               << "launch_sim.launch.py";
-    
-    robot_process->setProgram("ros2");
-    robot_process->setArguments(robot_args);
-    robot_process->start();
 
     // Config display map
     auto map_display = _manager->createDisplay("rviz_default_plugins/Map", "Map Display", true);
@@ -297,7 +305,7 @@ void MainWindow::setmap()
     }
     else
     {
-        qDebug() << "Can't create map.";
+        qDebug() << "Can't create map";
     }
 }
 
@@ -333,7 +341,7 @@ void MainWindow::set_nav()
 void MainWindow::select_table()
 {
     auto name_table = ui->comboBox_2->currentText();
-    if(!table_list.contains(name_table))
+    if(!table_list.contains(name_table) && !name_table.isEmpty())
     {
         table_list.append(name_table);
         ui->listWidget->addItem(name_table);
@@ -410,6 +418,10 @@ void MainWindow::start_slam()
               << "online_async_launch.py"
               << "use_sim_time:=True";
 
+    // slam_args << "launch"
+    //         << "agv_test_pkg"
+    //         << "online_async_launch.py";
+
     slam_process->setProgram("ros2");
     slam_process->setArguments(slam_args);
     slam_process->start();
@@ -462,12 +474,28 @@ void MainWindow::quit_slam()
     for (int i = 0; i < num_displays; ++i)
     {
         auto display = root_display_group->getDisplayAt(i);
-        if (display && display->getName().toStdString() == "Map Display")  // check dung name map cua create_display
+        if (display && display->getName().toStdString() == "Map Display")  // check dung name map cua create_display da tao
         {
             display->setEnabled(false);  // hoặc root_display_group->removeChild(display);
             break;
         }
     }
+
+    // QProcess* kill_process = new QProcess;
+
+    // QString pid = QString::number(slam_process->processId());
+    // QString program = "kill";
+    // QStringList arguments;
+    // arguments << "-SIGINT" << pid;
+
+    // qDebug() << program << arguments;
+
+    // kill_process->start(program, arguments);
+
+    // bool started = kill_process->waitForStarted();
+    // qDebug() << "Process started:" << started << kill_process->errorString();
+    // Q_ASSERT(started);
+
 }
 
 void MainWindow::save_map()
