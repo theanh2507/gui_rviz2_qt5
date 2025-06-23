@@ -55,6 +55,10 @@ public:
     void save_map();
     void start_multiple_point();
 
+    // 
+    void pause_robot();
+    void resume_robot();
+
 private:
     Ui::MainWindow *ui;
     QApplication * _app;
@@ -87,12 +91,14 @@ private:
     QProcess *slam_process = nullptr;
     QProcess *save_map_process = nullptr;
     QProcess *multiple_point_process = nullptr;
+    QProcess *send_position_table_process = nullptr;
 
     QStringList table_list;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr table_publisher;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr finish_publisher;
     rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr vel_publisher;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_move_multiple_point;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pause_pub;
 
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr confirm;
 
