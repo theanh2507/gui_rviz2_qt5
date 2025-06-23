@@ -43,6 +43,8 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
 
     pub_move_multiple_point = raw_node->create_publisher<std_msgs::msg::Bool>("/start_navigation",10);
 
+    pause_pub = raw_node->create_publisher<std_msgs::msg::Bool>("/pause_cmd",10);
+
     connect(ui->comboBox, &QComboBox::currentTextChanged, this, &MainWindow::setmap);
     
     connect(ui->pushButton_14, &QPushButton::clicked, this, [=](){
@@ -90,6 +92,10 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
 
     // button multiple point
     connect(ui->pushButton_28,&QPushButton::clicked, this, &MainWindow::start_multiple_point);
+
+    // pause, resume cmd_vel
+    connect(ui->pushButton_16,&QPushButton::clicked, this, &MainWindow::pause_robot);
+    connect(ui->pushButton_17,&QPushButton::clicked, this, &MainWindow::resume_robot);
 }
 
 MainWindow::~MainWindow()
@@ -230,6 +236,22 @@ void MainWindow::initial()
     multiple_point_process->setProgram("ros2");
     multiple_point_process->setArguments(multiple_point_args);
     multiple_point_process->start();
+
+    ///////////////////////////// multiple point process /////////////////////////////
+    send_position_table_process = new QProcess(this);
+
+    QStringList args;
+    args << "run"
+        << "articubot_one"
+        << "waypoint.py"
+        << "--ros-args"
+        << "--params-file"
+        << "/home/theanh/mobile_rb_ws/src/articubot_one/config/waypoint_follow.yaml";
+
+    send_position_table_process->setProgram("ros2");
+    send_position_table_process->setArguments(args);
+    send_position_table_process->start();
+
 
 }
 
@@ -638,6 +660,20 @@ void MainWindow::start_multiple_point()
     std_msgs::msg::Bool msg;
     msg.data = true;
     pub_move_multiple_point->publish(msg);
+}
+
+void MainWindow::pause_robot()
+{
+    std_msgs::msg::Bool msg;
+    msg.data = true;
+    pause_pub->publish(msg);  // topic: /pause_cmd
+}
+
+void MainWindow::resume_robot()
+{
+    std_msgs::msg::Bool msg;
+    msg.data = false;
+    pause_pub->publish(msg);
 }
 
 
