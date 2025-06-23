@@ -28,19 +28,20 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
     initial();
     setupRobotModelDisplay();
     setmap();
-    set_nav();
+    set_tool();
 
     auto raw_node = _rvizRosNodeTmp->get_raw_node();                    // tra ve kieu std::shared_ptr<rclcpp::Node>
 
     // gui ten cua table sang waypoint
     table_publisher = raw_node->create_publisher<std_msgs::msg::String>("selected_table", 10);
 
-    // 
     confirm = raw_node->create_subscription<std_msgs::msg::String>("status_robot", 10, std::bind(&MainWindow::confirm_callback, this, std::placeholders::_1));
 
     finish_publisher = raw_node->create_publisher<std_msgs::msg::String>("finish_node", 10);
 
     vel_publisher = raw_node->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+
+    pub_move_multiple_point = raw_node->create_publisher<std_msgs::msg::Bool>("/start_navigation",10);
 
     connect(ui->comboBox, &QComboBox::currentTextChanged, this, &MainWindow::setmap);
     
@@ -59,6 +60,11 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
     connect(ui->pushButton_6, &QPushButton::clicked, this, [=]() {
         _manager->getToolManager()->setCurrentTool(nav_goal_tool);
     });
+
+    connect(ui->pushButton_27, &QPushButton::clicked, this, [=]() {
+        _manager->getToolManager()->setCurrentTool(publish_point_tool);
+    });
+
 
     // control robot manual
     connect(ui->pushButton_9, &QPushButton::clicked, this, &MainWindow::Control_Robot_Manual);
@@ -80,6 +86,10 @@ MainWindow::MainWindow(QApplication * app, QWidget *parent)
     connect(ui->pushButton_5, &QPushButton::clicked, this, &MainWindow::start_slam);
     connect(ui->pushButton_24,&QPushButton::clicked, this, &MainWindow::quit_slam);
     connect(ui->pushButton_25,&QPushButton::clicked, this, &MainWindow::save_map);
+
+
+    // button multiple point
+    connect(ui->pushButton_28,&QPushButton::clicked, this, &MainWindow::start_multiple_point);
 }
 
 MainWindow::~MainWindow()
@@ -125,7 +135,7 @@ void MainWindow::initial()
     _grid->subProp("Cell Size")->setValue(1.0f);
 
     // 添加点云显示
-    _pointcloud = _manager->createDisplay("rviz_default_plugins/LaserScan", "scan_filter", true);
+    _pointcloud = _manager->createDisplay("rviz_default_plugins/LaserScan", "scan", true);
     if (_pointcloud == NULL) {
         throw std::runtime_error("Error creating pointcloud display");
     }
@@ -148,6 +158,12 @@ void MainWindow::initial()
     path->subProp("Line Style")->setValue("Billboards");
     path->subProp("Line Width")->setValue(0.1);
     path->subProp("Color")->setValue("0 255 0");
+
+    // Multiple point display
+    multiple_point = _manager->createDisplay("rviz_default_plugins/Marker", "/multiple point", true);
+    multiple_point->subProp("Topic")->setValue("/visualization_marker");
+
+
     // ##########################################
     _render_panel->setMouseTracking(true);
     _render_panel->setFocusPolicy(Qt::StrongFocus);
@@ -179,17 +195,18 @@ void MainWindow::initial()
 
     ///////////////////////////// robot process /////////////////////////////
     
-    if(robot_process)
-    {
-        robot_process->kill();
-        robot_process->waitForFinished(3000);
-        delete robot_process;
-        robot_process = nullptr;
-    }
+    // if(robot_process)
+    // {
+    //     robot_process->kill();
+    //     robot_process->waitForFinished(3000);
+    //     delete robot_process;
+    //     robot_process = nullptr;
+    // }
 
     robot_process = new QProcess(this);
 
     QStringList robot_args;
+
     robot_args << "launch"
                << "articubot_one"
                << "launch_sim.launch.py";
@@ -201,6 +218,18 @@ void MainWindow::initial()
     robot_process->setProgram("ros2");
     robot_process->setArguments(robot_args);
     robot_process->start();
+
+    ///////////////////////////// multiple point process /////////////////////////////
+    multiple_point_process = new QProcess(this);
+    QStringList multiple_point_args;
+
+    multiple_point_args << "run"
+                        << "articubot_one"
+                        << "multiple_point.py";
+
+    multiple_point_process->setProgram("ros2");
+    multiple_point_process->setArguments(multiple_point_args);
+    multiple_point_process->start();
 
 }
 
@@ -230,9 +259,9 @@ void MainWindow::setmap()
     if (name_map == "map1")
         map_yaml = "/home/theanh/maps/test_map.yaml";
     else if (name_map == "map2")
-        map_yaml = "/home/theanh/maps/abc.yaml";
+        map_yaml = "/home/theanh/maps/my_map_huy_hoang.yaml";
     else if (name_map == "map3")
-        map_yaml = "/home/theanh/maps/my_map.yaml";
+        map_yaml = "/home/theanh/maps/map_antue.yaml";
     else
         return;
     
@@ -248,6 +277,7 @@ void MainWindow::setmap()
     localization_process = new QProcess(this);
 
     QStringList localization_args;
+
     localization_args << "launch"
                       << "articubot_one"
                       << "localization_launch.py"
@@ -264,10 +294,10 @@ void MainWindow::setmap()
 
 
     if (!localization_process->waitForStarted(3000)) {
-        qDebug() << "Không thể khởi động localization_process";
+        qDebug() << "can't startlocalization_process";
         return;
         }
-    qDebug() << "localization_process đã được khởi động";
+    qDebug() << "localization_process start";
 
 
     ////////// navigation process
@@ -282,6 +312,7 @@ void MainWindow::setmap()
     navigation_process = new QProcess(this);
 
     QStringList navigation_args;
+
     navigation_args << "launch"
                     << "articubot_one"
                     << "navigation_launch.py";
@@ -328,14 +359,17 @@ void MainWindow::setView(const QString &view_mode)
     }
 }
 
-void MainWindow::set_nav()
+void MainWindow::set_tool()
 {
     auto tool_manager = _manager->getToolManager();
+
     initial_pose_tool = tool_manager->addTool("rviz_default_plugins/SetInitialPose");
     nav_goal_tool = tool_manager->addTool("rviz_default_plugins/SetGoal");
+    publish_point_tool = tool_manager->addTool("rviz_default_plugins/PublishPoint");
 
     initial_pose_tool->setName("InitialPose");
     nav_goal_tool->setName("NavGoal");
+    publish_point_tool->setName("PublishPoint");
 }
 
 void MainWindow::select_table()
@@ -413,6 +447,7 @@ void MainWindow::start_slam()
     slam_process = new QProcess(this);
 
     QStringList slam_args;
+
     slam_args << "launch"
               << "articubot_one"
               << "online_async_launch.py"
@@ -495,7 +530,6 @@ void MainWindow::quit_slam()
     // bool started = kill_process->waitForStarted();
     // qDebug() << "Process started:" << started << kill_process->errorString();
     // Q_ASSERT(started);
-
 }
 
 void MainWindow::save_map()
@@ -593,10 +627,19 @@ void MainWindow::Control_Robot_Manual()
     
 }
 
+
 void MainWindow::SendCommand_Vel()
 {
     vel_publisher->publish(currentTwist);
 }
+
+void MainWindow::start_multiple_point()
+{
+    std_msgs::msg::Bool msg;
+    msg.data = true;
+    pub_move_multiple_point->publish(msg);
+}
+
 
 // void MainWindow::delete_map()
 // {
